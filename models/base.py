@@ -13,6 +13,9 @@ batch_size = 64
 
 
 class BaseLearner(object):
+    '''
+    BaseLearner提供构件样本库，增量网络
+    '''
     def __init__(self, args):
         self.args = args
         self._cur_task = -1
@@ -52,7 +55,7 @@ class BaseLearner(object):
             return self._network.feature_dim
 
     def build_rehearsal_memory(self, data_manager, per_class):
-        if self._fixed_memory:
+        if self._fixed_memory: # 这里fixed_memory应该是每个样本集合大小不会缩减
             self._construct_exemplar_unified(data_manager, per_class)
         else:
             self._reduce_exemplar(data_manager, per_class)
@@ -171,7 +174,7 @@ class BaseLearner(object):
                 _vectors = tensor2numpy(
                     self._network.extract_vector(_inputs.to(self._device))
                 )
-
+            # _vectors: [batch_size, feature_dim]
             vectors.append(_vectors)
             targets.append(_targets)
 
@@ -180,13 +183,14 @@ class BaseLearner(object):
     def _reduce_exemplar(self, data_manager, m):
         logging.info("Reducing exemplars...({} per classes)".format(m))
         dummy_data, dummy_targets = copy.deepcopy(self._data_memory), copy.deepcopy(
-            self._targets_memory
+            self._targets_memory #self._targets_memory例子：[class_id_1,class_id_1,class_id_2,class_id_2]
         )
         self._class_means = np.zeros((self._total_classes, self.feature_dim))
         self._data_memory, self._targets_memory = np.array([]), np.array([])
 
-        for class_idx in range(self._known_classes):
+        for class_idx in range(self._known_classes): #这里class_idx实际上是order列表里的索引
             mask = np.where(dummy_targets == class_idx)[0]
+            # 注意：以dummy_data[mask]为例，它得到的是一个二维np.ndarray!!!
             dd, dt = dummy_data[mask][:m], dummy_targets[mask][:m]
             self._data_memory = (
                 np.concatenate((self._data_memory, dd))
@@ -216,23 +220,25 @@ class BaseLearner(object):
     def _construct_exemplar(self, data_manager, m):
         logging.info("Constructing exemplars...({} per classes)".format(m))
         for class_idx in range(self._known_classes, self._total_classes):
+            # data,targets都是np.ndarray
             data, targets, idx_dataset = data_manager.get_dataset(
                 np.arange(class_idx, class_idx + 1),
                 source="train",
                 mode="test",
-                ret_data=True,
-            )
+                ret_data=True,# if ret_data == True return idx_dataset
+            ) # idx_dataset: DummyDataset(data, targets, trsf, self.use_path)
             idx_loader = DataLoader(
                 idx_dataset, batch_size=batch_size, shuffle=False, num_workers=4
-            )
-            vectors, _ = self._extract_vectors(idx_loader)
-            vectors = (vectors.T / (np.linalg.norm(vectors.T, axis=0) + EPSILON)).T
+            )#使用idx_dataset就是为了提供class_idx的样本
+
+            vectors, _ = self._extract_vectors(idx_loader) # 二维[n,feature_dim]
+            vectors = (vectors.T / (np.linalg.norm(vectors.T, axis=0) + EPSILON)).T # 向量归一化
             class_mean = np.mean(vectors, axis=0)
 
             # Select
             selected_exemplars = []
             exemplar_vectors = []  # [n, feature_dim]
-            for k in range(1, m + 1):
+            for k in range(1, m + 1): #选m个
                 S = np.sum(
                     exemplar_vectors, axis=0
                 )  # [feature_dim] sum of selected exemplars vectors
@@ -247,7 +253,7 @@ class BaseLearner(object):
 
                 vectors = np.delete(
                     vectors, i, axis=0
-                )  # Remove it to avoid duplicative selection
+                )  # Remove it to avoid duplicative selection(从备选库中删除掉选中的样本)
                 data = np.delete(
                     data, i, axis=0
                 )  # Remove it to avoid duplicative selection
@@ -255,6 +261,7 @@ class BaseLearner(object):
             # uniques = np.unique(selected_exemplars, axis=0)
             # print('Unique elements: {}'.format(len(uniques)))
             selected_exemplars = np.array(selected_exemplars)
+            # 这里不懂为什么
             exemplar_targets = np.full(m, class_idx)
             self._data_memory = (
                 np.concatenate((self._data_memory, selected_exemplars))

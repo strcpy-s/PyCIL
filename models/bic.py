@@ -34,16 +34,19 @@ class BiC(BaseLearner):
         logging.info("Exemplar size: {}".format(self.exemplar_size))
 
     def incremental_train(self, data_manager):
-        self._cur_task += 1
+        # slef._known_classes初始化为0
+        self._cur_task += 1 #首次执行时_cur_task变为0,
+        # 首次执行时self._known_classes为0， get_task_szie()函数返回init_cls
+        # self._total_classes代表了包含了当前任务的类（即正在学习的类）
         self._total_classes = self._known_classes + data_manager.get_task_size(
             self._cur_task
-        )
-        self._network.update_fc(self._total_classes)
+        )#return _increments[self._cur_task], self._cur_task为0时self._total_classes=10
+        self._network.update_fc(self._total_classes) #因为新增了类，必须先更新全连接层的神经元个数,同时增加bias_layer
         logging.info(
             "Learning on {}-{}".format(self._known_classes, self._total_classes)
         )
 
-        if self._cur_task >= 1:
+        if self._cur_task >= 1: #从大于1开始，需要拆分数据，也就是从第二个任务开始
             train_dset, val_dset = data_manager.get_dataset_with_split(
                 np.arange(self._known_classes, self._total_classes),
                 source="train",
@@ -63,9 +66,9 @@ class BiC(BaseLearner):
             )
             self.lamda = self._known_classes / self._total_classes
             logging.info("Lambda: {:.3f}".format(self.lamda))
-        else:
+        else: # self._cur_task为0时
             train_dset = data_manager.get_dataset(
-                np.arange(self._known_classes, self._total_classes),
+                np.arange(self._known_classes, self._total_classes), # self._total_classes=10
                 source="train",
                 mode="train",
                 appendent=self._get_memory(),
@@ -83,35 +86,38 @@ class BiC(BaseLearner):
 
         self._log_bias_params()
         self._stage1_training(self.train_loader, self.test_loader)
-        if self._cur_task >= 1:
+        if self._cur_task >= 1: #从第二个任务开始
             self._stage2_bias_correction(self.val_loader, self.test_loader)
 
-        self.build_rehearsal_memory(data_manager, self.samples_per_class)
+        self.build_rehearsal_memory(data_manager, self.samples_per_class) #建立样本库函数
 
         if len(self._multiple_gpus) > 1:
             self._network = self._network.module
         self._log_bias_params()
 
-    def _run(self, train_loader, test_loader, optimizer, scheduler, stage):
+    def _run(self, train_loader, test_loader, optimizer, scheduler, stage): # stage表示是训练多分类，还是训练bias
         for epoch in range(1, epochs + 1):
             self._network.train()
             losses = 0.0
+
             for i, (_, inputs, targets) in enumerate(train_loader):
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
+
                 logits = self._network(inputs)["logits"]
 
                 if stage == "training":
                     clf_loss = F.cross_entropy(logits, targets)
                     if self._old_network is not None:
-                        old_logits = self._old_network(inputs)["logits"].detach()
+                        # 若不为第一次训练
+                        old_logits = self._old_network(inputs)["logits"].detach() #不参与后续梯度下降
                         hat_pai_k = F.softmax(old_logits / T, dim=1)
                         log_pai_k = F.log_softmax(
                             logits[:, : self._known_classes] / T, dim=1
                         )
                         distill_loss = -torch.mean(
-                            torch.sum(hat_pai_k * log_pai_k, dim=1)
+                            torch.sum(hat_pai_k * log_pai_k, dim=1) # 返回[batch_size]一维数组
                         )
-                        loss = distill_loss * self.lamda + clf_loss * (1 - self.lamda)
+                        loss = distill_loss * self.lamda + clf_loss * (1 - self.lamda) #论文中的损失函数
                     else:
                         loss = clf_loss
                 elif stage == "bias_correction":
@@ -147,6 +153,7 @@ class BiC(BaseLearner):
             return
         """
 
+        # 第一阶段中，bias_layer里的parameter不用优化
         ignored_params = list(map(id, self._network.bias_layers.parameters()))
         base_params = filter(
             lambda p: id(p) not in ignored_params, self._network.parameters()
@@ -162,6 +169,7 @@ class BiC(BaseLearner):
         optimizer = optim.SGD(
             network_params, lr=lrate, momentum=0.9, weight_decay=weight_decay
         )
+        # 学习率调节器
         scheduler = optim.lr_scheduler.MultiStepLR(
             optimizer=optimizer, milestones=milestones, gamma=lrate_decay
         )
@@ -179,7 +187,7 @@ class BiC(BaseLearner):
             self._network = self._network.module
         network_params = [
             {
-                "params": self._network.bias_layers[-1].parameters(),
+                "params": self._network.bias_layers[-1].parameters(), #这里说明要经过梯度下降进而优化的参数
                 "lr": lrate,
                 "weight_decay": weight_decay,
             }

@@ -16,7 +16,7 @@ class iCIFAR10(iData):
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=63 / 255),
-        transforms.ToTensor(),
+        transforms.ToTensor(), # [H,W,C]->[C,H,W]
     ]
     test_trsf = [transforms.ToTensor()]
     common_trsf = [
@@ -25,11 +25,12 @@ class iCIFAR10(iData):
         ),
     ]
 
-    class_order = np.arange(10).tolist()
+    class_order = np.arange(10).tolist() #最简单的
 
     def download_data(self):
         train_dataset = datasets.cifar.CIFAR10("./data", train=True, download=True)
         test_dataset = datasets.cifar.CIFAR10("./data", train=False, download=True)
+        # train_data是numpy.ndarray,train_targets本来是python list，所以需要np.array
         self.train_data, self.train_targets = train_dataset.data, np.array(
             train_dataset.targets
         )

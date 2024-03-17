@@ -25,6 +25,9 @@ def count_parameters(model, trainable=False):
 
 
 def tensor2numpy(x):
+    """
+    将tensor转成numpy
+    """
     return x.cpu().data.numpy() if x.is_cuda else x.data.numpy()
 
 

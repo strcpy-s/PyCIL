@@ -65,6 +65,9 @@ class BaseNet(nn.Module):
         return self.convnet.out_dim
 
     def extract_vector(self, x):
+        """
+        输出图像经过特征提取器(卷积)后的特征向量(不是线性代数的特征向量)
+        """
         return self.convnet(x)["features"]
 
     def forward(self, x):
@@ -115,7 +118,7 @@ class BaseNet(nn.Module):
         test_acc = model_infos['test_acc']
         return test_acc
 
-class IncrementalNet(BaseNet):
+class IncrementalNet(BaseNet): #应该是一个增量学习网络
     def __init__(self, args, pretrained, gradcam=False):
         super().__init__(args, pretrained)
         self.gradcam = gradcam
@@ -151,10 +154,21 @@ class IncrementalNet(BaseNet):
         return fc
 
     def forward(self, x):
-        x = self.convnet(x)
-        out = self.fc(x["features"])
-        out.update(x)
-        if hasattr(self, "gradcam") and self.gradcam:
+        '''
+        CifarResNet.forward() -> {
+            'fmaps': [x_1, x_2, x_3],
+            'features': features
+        }
+        '''
+        x = self.convnet(x) #也就是特征提取
+        '''
+        SimpleLinear.forward()  -> {
+            'logits': F.linear(input, self.weight, self.bias)
+        }
+        '''
+        out = self.fc(x["features"]) #也就是训练全连接层
+        out.update(x) # python合并字典
+        if hasattr(self, "gradcam") and self.gradcam: #暂且不知道干什么
             out["gradcam_gradients"] = self._gradcam_gradients
             out["gradcam_activations"] = self._gradcam_activations
 
@@ -236,7 +250,7 @@ class BiasLayer_BIC(nn.Module):
         self.alpha = nn.Parameter(torch.ones(1, requires_grad=True))
         self.beta = nn.Parameter(torch.zeros(1, requires_grad=True))
 
-    def forward(self, x, low_range, high_range):
+    def forward(self, x, low_range, high_range): #[batch_size, len_logits]
         ret_x = x.clone()
         ret_x[:, low_range:high_range] = (
             self.alpha * x[:, low_range:high_range] + self.beta
@@ -258,10 +272,14 @@ class IncrementalNetWithBias(BaseNet):
 
     def forward(self, x):
         x = self.convnet(x)
-        out = self.fc(x["features"])
+        out = self.fc(x["features"]) #得到logits[batch_size, class],即未送入bias_layer前的数据
         if self.bias_correction:
             logits = out["logits"]
             for i, layer in enumerate(self.bias_layers):
+                '''
+                这里作用是将n个bias_layer()应用在对应logits位置，所以会遍历n次
+                layer:BiasLayer_BIC
+                '''
                 logits = layer(
                     logits, sum(self.task_sizes[:i]), sum(self.task_sizes[: i + 1])
                 )
@@ -273,7 +291,13 @@ class IncrementalNetWithBias(BaseNet):
 
     def update_fc(self, nb_classes):
         fc = self.generate_fc(self.feature_dim, nb_classes)
-        if self.fc is not None:
+        if self.fc is not None: #这里表达是在训练第二次任务及以后
+            '''
+            以下代码把之前全连接层参数拷贝出来，然后扩展全连接神经元个数，
+            然后把之前的参数复制进去
+            nb_classes就是所有类个数（新和旧）
+            '''
+            # 此时self.fc还是老的，nb_output还不包括新的
             nb_output = self.fc.out_features
             weight = copy.deepcopy(self.fc.weight.data)
             bias = copy.deepcopy(self.fc.bias.data)
@@ -285,7 +309,7 @@ class IncrementalNetWithBias(BaseNet):
 
         new_task_size = nb_classes - sum(self.task_sizes)
         self.task_sizes.append(new_task_size)
-        self.bias_layers.append(BiasLayer_BIC())
+        self.bias_layers.append(BiasLayer_BIC()) #同时增加bias_layer
 
     def generate_fc(self, in_dim, out_dim):
         fc = SimpleLinear(in_dim, out_dim)
