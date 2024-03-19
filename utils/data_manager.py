@@ -87,7 +87,9 @@ class DataManager(object):
             data.append(appendent_data)
             targets.append(appendent_targets)
 
-        data, targets = np.concatenate(data), np.concatenate(targets) #这里必须用concatenate才行,否则就是一个五维tensor
+        # np.concatenate(data)才行(降维),否则就是一个五维tensor
+        # np.concatenate(targets)才行(降维),否则就是一个二维tensor
+        data, targets = np.concatenate(data), np.concatenate(targets)
 
         if ret_data:
             return data, targets, DummyDataset(data, targets, trsf, self.use_path)
@@ -200,7 +202,7 @@ class DataManager(object):
         idata.download_data()
 
         # Data
-        self._train_data, self._train_targets = idata.train_data, idata.train_targets
+        self._train_data, self._train_targets = idata.train_data, idata.train_targets # 都是np.ndarray
         self._test_data, self._test_targets = idata.test_data, idata.test_targets
         self.use_path = idata.use_path
 

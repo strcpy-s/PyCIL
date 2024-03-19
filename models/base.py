@@ -128,7 +128,7 @@ class BaseLearner(object):
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 outputs = model(inputs)["logits"]
-            predicts = torch.max(outputs, dim=1)[1]
+            predicts = torch.max(outputs, dim=1)[1] #返回一维tensor[batch_size]
             correct += (predicts.cpu() == targets).sum()
             total += len(targets)
 
@@ -261,7 +261,7 @@ class BaseLearner(object):
             # uniques = np.unique(selected_exemplars, axis=0)
             # print('Unique elements: {}'.format(len(uniques)))
             selected_exemplars = np.array(selected_exemplars)
-            # 这里不懂为什么
+            # 个人觉得这里可以优化：优化成：exemplar_targets = np.array([m])
             exemplar_targets = np.full(m, class_idx)
             self._data_memory = (
                 np.concatenate((self._data_memory, selected_exemplars))

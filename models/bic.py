@@ -165,7 +165,8 @@ class BiC(BaseLearner):
                 "lr": 0,
                 "weight_decay": 0,
             },
-        ]
+        ]#参考https://blog.csdn.net/Answer3664/article/details/108493753 进行优化
+
         optimizer = optim.SGD(
             network_params, lr=lrate, momentum=0.9, weight_decay=weight_decay
         )

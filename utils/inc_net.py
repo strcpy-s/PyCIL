@@ -52,7 +52,9 @@ def get_convnet(args, pretrained=False):
     else:
         raise NotImplementedError("Unknown type {}".format(name))
 
-
+'''
+BaseNet代表resnet
+'''
 class BaseNet(nn.Module):
     def __init__(self, args, pretrained):
         super(BaseNet, self).__init__()
@@ -247,8 +249,8 @@ class CosineIncrementalNet(BaseNet):
 class BiasLayer_BIC(nn.Module):
     def __init__(self):
         super(BiasLayer_BIC, self).__init__()
-        self.alpha = nn.Parameter(torch.ones(1, requires_grad=True))
-        self.beta = nn.Parameter(torch.zeros(1, requires_grad=True))
+        self.alpha = nn.Parameter(torch.ones(1, requires_grad=True)) #这里不需要加requires_grad参数,默认为True
+        self.beta = nn.Parameter(torch.zeros(1, requires_grad=True)) #这里不需要加requires_grad参数,默认为True
 
     def forward(self, x, low_range, high_range): #[batch_size, len_logits]
         ret_x = x.clone()
@@ -293,8 +295,10 @@ class IncrementalNetWithBias(BaseNet):
         fc = self.generate_fc(self.feature_dim, nb_classes)
         if self.fc is not None: #这里表达是在训练第二次任务及以后
             '''
-            以下代码把之前全连接层参数拷贝出来，然后扩展全连接神经元个数，
-            然后把之前的参数复制进去
+            以下代码完成：
+            1.把之前全连接层参数拷贝出来，然后扩展全连接神经元个数，
+            然后把之前的参数复制进去,但是后续更新还是还是会影响
+            2.新增一个BiasLayer_BIC()，即bias correction
             nb_classes就是所有类个数（新和旧）
             '''
             # 此时self.fc还是老的，nb_output还不包括新的
@@ -308,7 +312,7 @@ class IncrementalNetWithBias(BaseNet):
         self.fc = fc
 
         new_task_size = nb_classes - sum(self.task_sizes)
-        self.task_sizes.append(new_task_size)
+        self.task_sizes.append(new_task_size) #新的类个数存入task_sizes数组中
         self.bias_layers.append(BiasLayer_BIC()) #同时增加bias_layer
 
     def generate_fc(self, in_dim, out_dim):
